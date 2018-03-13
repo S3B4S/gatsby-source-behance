@@ -1,5 +1,6 @@
 const crypto = require(`crypto`)
 const axios = require(`axios`)
+const { createRemoteFileNode } = require('gatsby-source-filesystem')
 
 const dict = arr => Object.assign(...arr.map(([k, v]) => ({['size_' + k]: v})))
 
@@ -25,7 +26,7 @@ const transformProject = project => ({
   })
 })
 
-exports.sourceNodes = async ({ boundActionCreators: { createNode } }, { username, apiKey }) => {
+exports.sourceNodes = async ({ boundActionCreators: { createNode }, store, cache }, { username, apiKey }) => {
   if (!username || !apiKey) {
     throw 'You need to define username and apiKey'
   }
@@ -51,7 +52,7 @@ exports.sourceNodes = async ({ boundActionCreators: { createNode } }, { username
     lastCalled = now
     return call
   }
-
+  
   axiosClient.interceptors.request.use(rateLimiter)
 
   const { data: { projects } } = await axiosClient.get(`/users/${username}/projects?client_id=${apiKey}`)
@@ -63,7 +64,7 @@ exports.sourceNodes = async ({ boundActionCreators: { createNode } }, { username
   const projectsDetailed = await Promise.all(requests).map(request => request.data.project)
   
   // Create node for each project
-  projectsDetailed.map(async originalProject => {
+  projectsDetailed.forEach(async originalProject => {
     const project = transformProject(originalProject)
     const jsonString = JSON.stringify(project)
 
@@ -102,6 +103,36 @@ exports.sourceNodes = async ({ boundActionCreators: { createNode } }, { username
         contentDigest: crypto.createHash(`md5`).update(jsonString).digest(`hex`),
       },
     }
+
+    // Download files
+    await Promise.all(
+      project.modules.map(async module => {
+        let fileNode;
+        if (module.type === 'image') {
+          console.count("image")
+          fileNode = await createRemoteFileNode({
+            url: module.sizes.size_original,
+            store,
+            cache,
+            createNode,
+          })
+        }
+        if (module.type === 'media_collection') {
+          module.components.forEach(async component => {
+            console.count("media_collection")
+            fileNode = await createRemoteFileNode({
+              url: component.src,
+              store,
+              cache,
+              createNode,
+            })
+          })
+        }
+        if (fileNode) {
+          module.localFile = fileNode.id
+        }
+      })
+    )
 
     createNode(projectListNode)
   })

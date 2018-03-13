@@ -7,6 +7,11 @@ function _asyncToGenerator(fn) { return function () { var gen = fn.apply(this, a
 const crypto = require(`crypto`);
 const axios = require(`axios`);
 
+var _require = require('gatsby-source-filesystem');
+
+const createRemoteFileNode = _require.createRemoteFileNode;
+
+
 const dict = arr => Object.assign(...arr.map(([k, v]) => ({ ['size_' + k]: v })));
 
 // Transform the sizes and dimensions properties (these have numeral keys returned by the Behance API)
@@ -29,7 +34,7 @@ const transformProject = project => _extends({}, project, {
 });
 
 exports.sourceNodes = (() => {
-  var _ref = _asyncToGenerator(function* ({ boundActionCreators: { createNode } }, { username, apiKey }) {
+  var _ref = _asyncToGenerator(function* ({ boundActionCreators: { createNode }, store, cache }, { username, apiKey }) {
     if (!username || !apiKey) {
       throw 'You need to define username and apiKey';
     }
@@ -81,7 +86,7 @@ exports.sourceNodes = (() => {
     });
 
     // Create node for each project
-    projectsDetailed.map((() => {
+    projectsDetailed.forEach((() => {
       var _ref4 = _asyncToGenerator(function* (originalProject) {
         const project = transformProject(originalProject);
         const jsonString = JSON.stringify(project);
@@ -120,7 +125,46 @@ exports.sourceNodes = (() => {
             type: `BehanceProjects`,
             contentDigest: crypto.createHash(`md5`).update(jsonString).digest(`hex`)
           }
-        };
+
+          // Download files
+        };yield Promise.all(project.modules.map((() => {
+          var _ref5 = _asyncToGenerator(function* (module) {
+            let fileNode;
+            if (module.type === 'image') {
+              console.count("image");
+              fileNode = yield createRemoteFileNode({
+                url: module.sizes.size_original,
+                store,
+                cache,
+                createNode
+              });
+            }
+            if (module.type === 'media_collection') {
+              module.components.forEach((() => {
+                var _ref6 = _asyncToGenerator(function* (component) {
+                  console.count("media_collection");
+                  fileNode = yield createRemoteFileNode({
+                    url: component.src,
+                    store,
+                    cache,
+                    createNode
+                  });
+                });
+
+                return function (_x5) {
+                  return _ref6.apply(this, arguments);
+                };
+              })());
+            }
+            if (fileNode) {
+              module.localFile = fileNode.id;
+            }
+          });
+
+          return function (_x4) {
+            return _ref5.apply(this, arguments);
+          };
+        })()));
 
         createNode(projectListNode);
       });
